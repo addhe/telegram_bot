@@ -1,15 +1,8 @@
 import logging
 import os
 from openai import OpenAI
-
-from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder,
-    CallbackContext,
-    CommandHandler,
-    MessageHandler,
-    filters,
-)
+from telegram import Update, Chat
+from telegram.ext import ApplicationBuilder, CallbackContext, CommandHandler, MessageHandler, filters
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -22,12 +15,12 @@ client = OpenAI(api_key=openai_api_key)
 
 if not openai_api_key or not telegram_token:
     logging.error(
-        "API keys are not set correctly. Please check your environment variables.")
+        "API keys are not set correctly. Please check your environment variables."
+    )
     exit(1)
 
-
 # Constants for OpenAI API parameters
-MAX_TOKENS = 50
+MAX_TOKENS = 1000
 TEMPERATURE = 0.5
 
 
@@ -41,25 +34,37 @@ async def handle_message(update: Update, context: CallbackContext):
     """Handles user messages and generates responses using ChatGPT."""
     user_message = update.message.text
     chat_id = update.message.chat_id
+    bot_username = context.bot.username  # Retrieve bot username from context
+
+    logging.info(f"Received message: {user_message}")
+
+    if update.effective_chat.type in [Chat.GROUP, Chat.SUPERGROUP]:
+        if f'@{bot_username}' not in user_message:
+            logging.info("Bot not mentioned, ignoring message.")
+            return  # Only respond to messages that mention the bot
 
     try:
         # Generate ChatGPT response using the new API
-        response = client.chat.completions.create(model="gpt-3.5-turbo",
-                                                  messages=[
-                                                      {"role": "system",
-                                                          "content": "You are a helpful assistant."},
-                                                      {"role": "user",
-                                                          "content": user_message},
-                                                  ],
-                                                  max_tokens=MAX_TOKENS,
-                                                  temperature=TEMPERATURE)
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant. and your name is AiAnakTitipanBot"},
+                {"role": "user", "content": user_message},
+            ],
+            max_tokens=MAX_TOKENS,
+            temperature=TEMPERATURE,
+            stop=["\n\n"],
+        )
 
         chatgpt_reply = response.choices[0].message.content.strip()
+        logging.info(f"Generated reply: {chatgpt_reply}")
         # Send the response to the user
         await context.bot.send_message(chat_id=chat_id, text=chatgpt_reply)
     except Exception as e:
         logging.error(f"Error generating reply: {e}")
-        await context.bot.send_message(chat_id=chat_id, text="Sorry, I couldn't process that request.")
+        await context.bot.send_message(
+            chat_id=chat_id, text="Sorry, I couldn't process that request."
+        )
 
 
 def main():
@@ -68,8 +73,9 @@ def main():
 
     # Register command and message handlers
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message)
+    )
 
     # Start the bot
     application.run_polling()
