@@ -20,8 +20,11 @@ if not openai_api_key or not telegram_token:
     exit(1)
 
 # Constants for OpenAI API parameters
-MAX_TOKENS = 1000
+MAX_TOKENS = 2000
 TEMPERATURE = 0.5
+
+# In-memory storage for conversation history
+conversation_histories = {}
 
 
 async def start(update: Update, context: CallbackContext):
@@ -31,7 +34,7 @@ async def start(update: Update, context: CallbackContext):
 
 
 async def handle_message(update: Update, context: CallbackContext):
-    """Handles user messages and generates responses using ChatGPT."""
+    """Handles user messages and generates responses using ChatGPT, while maintaining conversation context."""
     user_message = update.message.text
     chat_id = update.message.chat_id
     bot_username = context.bot.username  # Retrieve bot username from context
@@ -43,23 +46,40 @@ async def handle_message(update: Update, context: CallbackContext):
             logging.info("Bot not mentioned, ignoring message.")
             return  # Only respond to messages that mention the bot
 
+    # Initialize or update conversation history
+    if chat_id not in conversation_histories:
+        conversation_histories[chat_id] = [
+            {"role": "system",
+                "content": "You are a helpful assistant. Your name AiAnakTitipanBot"}
+        ]
+
+    # Add the user's message to the conversation history
+    conversation_histories[chat_id].append(
+        {"role": "user", "content": user_message})
+
     try:
         # Generate ChatGPT response using the new API
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant. and your name is AiAnakTitipanBot"},
-                {"role": "user", "content": user_message},
-            ],
-            max_tokens=MAX_TOKENS,
+            model="gpt-4o-mini",
+            messages=conversation_histories[chat_id],
+            max_tokens=MAX_TOKENS,  # Increase max tokens if necessary
             temperature=TEMPERATURE,
-            stop=["\n\n"],
+            stream=False,
         )
 
+        logging.debug(f"Full API response: {response}")
+
+        # Extract the response content correctly
         chatgpt_reply = response.choices[0].message.content.strip()
         logging.info(f"Generated reply: {chatgpt_reply}")
-        # Send the response to the user
-        await context.bot.send_message(chat_id=chat_id, text=chatgpt_reply)
+
+        # Add the bot's reply to the conversation history
+        conversation_histories[chat_id].append(
+            {"role": "assistant", "content": chatgpt_reply})
+
+        # Split long messages if needed and send them in parts
+        for i in range(0, len(chatgpt_reply), 4000):  # 4000 characters per message
+            await context.bot.send_message(chat_id=chat_id, text=chatgpt_reply[i:i+4000])
     except Exception as e:
         logging.error(f"Error generating reply: {e}")
         await context.bot.send_message(
